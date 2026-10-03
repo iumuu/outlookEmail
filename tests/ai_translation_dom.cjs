@@ -35,7 +35,17 @@ async function runCase(html, invalid = false, hidden = false) {
         'NodeFilter', 'AbortController', 'fetchWithTimeout',
         'let activeTranslationController = null; ' + mount + '; return mountEmailTranslation;')(
         w, w.document, w.DOMPurify, w.DOMParser, w.NodeFilter, w.AbortController, w.fetchWithTimeout);
+    const select = container.querySelector('select');
+    select.add(new w.Option('Japanese', 'ja'));
+    let resolvePreference;
+    w.fetch = () => new Promise(resolve => { resolvePreference = resolve; });
     mountInWindow(container, { subject: 'Hello' }, html);
+    if (invalid) {
+        select.dispatchEvent(new w.Event('change'));
+    }
+    resolvePreference({ json: async () => ({ success: true, settings: { default_language: 'ja' } }) });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(select.value, invalid ? 'zh-CN' : 'ja', 'Default must not override a user selection');
     container.querySelector('button').click();
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(originalBody.innerHTML, before, 'Original DOM must stay unchanged');

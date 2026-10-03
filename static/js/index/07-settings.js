@@ -1763,6 +1763,7 @@
         }
 
         async function loadSettings() {
+            loadTranslationSettings();
             ensureForwardingSettingsUI();
             try {
                 const response = await fetch('/api/settings');
@@ -2273,4 +2274,56 @@
             if (diffHours < 24) return `${diffHours} 小时前`;
             if (diffDays < 30) return `${diffDays} 天前`;
             return `${Math.floor(diffDays / 30)} 月前`;
+        }
+
+        // AI translation credentials never enter localStorage or a reveal endpoint.
+        async function loadTranslationSettings() {
+            try {
+                const response = await fetch('/api/settings/ai-translation', { cache: 'no-store' });
+                const data = await response.json();
+                if (!data.success) throw new Error('读取 AI 翻译设置失败');
+                const config = data.settings;
+                document.getElementById('translationBaseUrl').value = config.base_url || '';
+                document.getElementById('translationModel').value = config.model || '';
+                document.getElementById('translationLanguage').value = config.default_language || 'zh-CN';
+                document.getElementById('translationTimeout').value = config.timeout_seconds;
+                document.getElementById('translationApiKey').value = '';
+                document.getElementById('translationApiKey').placeholder = config.api_key_configured ? '已配置，留空保留' : '输入 API Key';
+                document.getElementById('translationKeyStatus').textContent = config.api_key_configured ? '已配置（不返回密钥）' : '未配置';
+                document.getElementById('translationClearKey').checked = false;
+                document.getElementById('translationSettingsResult').textContent = config.source === 'settings' ? '使用已保存设置' : '使用环境配置（保存后整体覆盖）';
+            } catch (_) {
+                document.getElementById('translationSettingsResult').textContent = '读取 AI 翻译设置失败';
+            }
+        }
+
+        async function submitTranslationSettings(testOnly, button) {
+            const result = document.getElementById('translationSettingsResult');
+            if (document.getElementById('translationClearKey').checked && !testOnly && !window.confirm('清除密钥将停用翻译，不会回退环境密钥。确认清除？')) return;
+            button.disabled = true;
+            result.textContent = testOnly ? '测试中…' : '保存中…';
+            const payload = {
+                base_url: document.getElementById('translationBaseUrl').value,
+                api_key: document.getElementById('translationApiKey').value,
+                model: document.getElementById('translationModel').value,
+                default_language: document.getElementById('translationLanguage').value,
+                timeout_seconds: Number(document.getElementById('translationTimeout').value),
+                clear_api_key: document.getElementById('translationClearKey').checked
+            };
+            try {
+                const response = await fetch('/api/settings/ai-translation' + (testOnly ? '/test' : ''), {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!data.success) throw new Error(data.error?.message || '操作失败');
+                if (!testOnly) await loadTranslationSettings();
+                result.textContent = testOnly ? data.message : 'AI 翻译设置已保存';
+            } catch (error) {
+                result.textContent = error.message;
+            } finally {
+                // Do not retain typed credentials after a request, including failures.
+                document.getElementById('translationApiKey').value = '';
+                payload.api_key = '';
+                button.disabled = false;
+            }
         }

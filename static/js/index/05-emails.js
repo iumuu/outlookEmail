@@ -1790,6 +1790,18 @@
                 } };
             }
             const controls = container.querySelector('.email-translation');
+            const languageSelect = controls.querySelector('select');
+            let languageTouched = false;
+            languageSelect.addEventListener('change', () => { languageTouched = true; });
+            // Loading preferences does not submit mail or call the provider.
+            window.fetch('/api/settings/ai-translation', { cache: 'no-store' })
+                .then(response => response.json()).then(data => {
+                    const language = data.settings?.default_language;
+                    if (!languageTouched && data.success && Array.from(languageSelect.options).some(option => option.value === language)) {
+                        languageSelect.value = language;
+                    }
+                }).catch(() => {});
+
             const button = controls.querySelector('button');
             const select = controls.querySelector('select');
             const status = controls.querySelector('[role="status"]');

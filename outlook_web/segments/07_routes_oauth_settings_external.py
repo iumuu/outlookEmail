@@ -581,6 +581,7 @@ def api_validate_cron():
 def api_get_settings():
     """获取所有设置"""
     settings = get_all_settings()
+    settings.pop('ai_translation_config', None)
     # 隐藏密码的部分字符
     if 'login_password' in settings:
         pwd = settings['login_password']

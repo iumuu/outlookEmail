@@ -6,9 +6,15 @@
 
 原文始终位于上方，原始 DOM、iframe 内容和已有 CSS 不受翻译动作修改；译文位于其下方的独立可折叠 `<details>` 面板，可随时收起对照原文。HTML 邮件会先从当前已净化的原文文档提取可见文本节点，按节点编号发送；返回后克隆安全 HTML，只替换对应文本节点，保留原有标签、属性、链接、图片、表格和文档样式。译文 iframe 使用 `sandbox="allow-same-origin"`，禁用脚本并设置 CSP，不执行模型返回内容。纯文本邮件也使用克隆的安全文本节点，保留换行及原文排版样式；主题始终以 `textContent` 显示。若没有可翻译的正文文本，仍可翻译主题。译文不回写数据库，也不会改变原文。
 
-## 服务端配置
+### 服务端配置（环境变量）
 
-配置以下服务器进程环境变量并重启应用；不需要新增 Python 依赖（使用已有 requests）。本地 Python 启动不会自动加载 `.env`，请通过运行环境注入。
+推荐登录后打开 **设置 → AI 邮件翻译**，填写 OpenAI-compatible Base URL、密码型 API Key、模型、默认目标语言与超时（5–90 秒），点击该区域的“保存 AI 翻译设置”。这独立于底部其他设置的保存按钮，保存后立即生效，无需重启。测试连接使用当前表单草稿及留空时的现有密钥，仅发送固定 `Reply OK.` 提示（`max_tokens=8`），可能产生少量费用，不读取或上传邮件，也不保存草稿。
+
+尚未通过 UI 保存时，使用以下服务器进程环境变量；更改环境需要重启应用。不需要新增 Python 依赖（使用已有 requests）。本地 Python 启动不会自动加载 `.env`，请通过运行环境注入。
+
+**优先级为整组设置覆盖环境**：首次保存会将表单及有效密钥保存为 SQLite `settings` 表中的单个 `ai_translation_config` 对象，不逐字段回退环境。API Key 留空保留当前有效密钥（首次保存也包括环境中的密钥），配置读取只返回固定掩码和是否配置，不返回真实 key。明确勾选清除并保存后，密钥为空，翻译停用，绝不重新使用环境密钥；清除与输入新 key 同时提交会被拒绝。当前 UI 不提供恢复环境模式；需受信任管理员在停机维护时删除该 settings 行才能恢复整组环境配置。
+
+保存的 key 使用项目既有 Fernet 加密，密钥由 `SECRET_KEY` 经 PBKDF2 派生；地址、模型、语言和超时是数据库明文。没有独立 KMS/硬件密钥：能同时读取数据库和服务器 `SECRET_KEY` 的人员可解密；环境 key 本身以及包含它的 env 文件仍是明文。应限制数据目录、SQLite/备份、环境文件和 `SECRET_KEY` 的访问权限（仅服务账户/可信管理员，例如文件 0600、目录 0700），使用稳定强随机 `SECRET_KEY` 并安全备份，不要无迁移地更改该密钥。原始配置对象也从通用 `/api/settings` 响应中移除，不提供 reveal 接口，不放入 localStorage。
 
 | 变量 | 说明 |
 | --- | --- |
@@ -17,7 +23,7 @@
 | `AI_TRANSLATION_MODEL` | 提供商支持的模型名称，例如 `gpt-4o-mini` |
 | `AI_TRANSLATION_TIMEOUT_SECONDS` | 可选，总体响应读取截止时间，默认 45 秒，允许 5–90 秒 |
 
-前三项任意缺失时服务禁用（503），详情页仍可查看原文并在点击时提示未配置。不通过前端或设置 API 暴露配置与密钥。
+前三项任意缺失时服务禁用（503），详情页仍可查看原文并在点击时提示未配置。非敏感配置可在登录后的设置 UI/API 读取，真实密钥永不返回。
 
 地址规则：
 
@@ -26,7 +32,7 @@
 - 自定义路径 `https://provider.example/openai/v1` → 追加 `/chat/completions`
 - 已含 `/chat/completions` 的完整地址不会重复追加。
 
-仅允许 HTTP/HTTPS，不允许地址内含用户名、密码、query、fragment。线上务必使用 HTTPS；HTTP 仅适合可信的本地模型服务。地址是管理员环境配置，不接受客户端传入；请仅配置可信的服务商。
+仅允许 HTTP/HTTPS，不允许地址内含用户名、密码、query、fragment。线上务必使用 HTTPS；HTTP 仅适合可信的本地模型服务。地址仅可由已登录管理员通过 CSRF 保护的配置/测试接口提交；请仅配置可信的服务商。未做内网地址封锁，管理员配置或测试可访问服务器内网，不能将管理员权限授予不可信用户。
 
 ### Docker
 
@@ -72,7 +78,7 @@
 {"subject":"Hello","body":"World","body_type":"text","target_language":"zh-CN"}
 ```
 
-`body_type` 允许 `text`/`html`；缺省为 `text`。目标语言缺省为 `zh-CN`。成功返回：
+`body_type` 允许 `text`/`html`；缺省为 `text`。目标语言缺省为已保存的默认目标语言（未保存时 `zh-CN`）。成功返回：
 
 ```json
 {"success":true,"translation":{"subject":"你好","body":"世界","target_language":"zh-CN"}}
@@ -90,7 +96,8 @@
 ## 测试
 
 ```sh
-python -m pytest tests/test_ai_translation.py -q
+python -m pytest tests/test_ai_translation.py tests/test_ai_translation_settings.py -q
+node --check static/js/index/07-settings.js
 node --check static/js/index/05-emails.js
 ```
 
@@ -105,3 +112,5 @@ NODE_PATH=/tmp/translation-dom-tests/node_modules node tests/ai_translation_dom.
 ```
 
 覆盖 HTML 表格/图片/链接/样式保留、纯文本样式和换行、原文 DOM 不变、拒绝不匹配响应、确认前不发送请求，以及模型 HTML 作为文字呈现。jsdom 不提供真实浏览器布局，像素级视觉效果需另行浏览器验证。
+
+配置接口：`GET/POST /api/settings/ai-translation` 读取掩码/保存整组配置；`POST /api/settings/ai-translation/test` 测试草稿。全部需现有网页登录，所有 POST 需有效 CSRF token（部署必须安装已有 Flask-WTF 依赖并启用 CSRF）。配置和测试响应带 `Cache-Control: no-store`。管理员身份沿用项目单一 logged_in 会话，未增加细分角色/RBAC。

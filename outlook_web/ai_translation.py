@@ -74,7 +74,7 @@ def validate_input(data, allow_empty=False):
     if not isinstance(data, dict):
         raise TranslationError('INVALID_INPUT', '请提交 JSON 邮件内容', 400)
     subject, body = data.get('subject', ''), data.get('body', '')
-    language, body_type = data.get('target_language', 'zh-CN'), data.get('body_type', 'text')
+    language, body_type = data.get('target_language', default_language()), data.get('body_type', 'text')
     if (not isinstance(subject, str) or not isinstance(body, str)
             or not isinstance(language, str) or language not in LANGUAGES
             or not isinstance(body_type, str) or body_type not in ('text', 'html')):
@@ -89,10 +89,34 @@ def validate_input(data, allow_empty=False):
     return subject, body, language
 
 
-def translation_config():
-    base = os.environ.get('AI_TRANSLATION_BASE_URL', '').strip()
-    key = os.environ.get('AI_TRANSLATION_API_KEY', '').strip()
-    model = os.environ.get('AI_TRANSLATION_MODEL', '').strip()
+def effective_settings():
+    # One saved object overrides the entire environment, including an empty key.
+    from flask import has_app_context
+    if has_app_context():
+        import web_outlook_app as web
+        saved = web.get_setting('ai_translation_config', '')
+        if saved:
+            data = json.loads(saved)
+            data['api_key'] = web.decrypt_data(data.get('api_key', ''))
+            return data
+    return {
+        'base_url': os.environ.get('AI_TRANSLATION_BASE_URL', '').strip(),
+        'api_key': os.environ.get('AI_TRANSLATION_API_KEY', '').strip(),
+        'model': os.environ.get('AI_TRANSLATION_MODEL', '').strip(),
+        'timeout_seconds': os.environ.get('AI_TRANSLATION_TIMEOUT_SECONDS', '45'),
+        'default_language': 'zh-CN',
+    }
+
+
+def default_language():
+    return effective_settings().get('default_language', 'zh-CN')
+
+
+def translation_config(config=None):
+    config = effective_settings() if config is None else config
+    base, key, model = (config.get(k, '') for k in ('base_url', 'api_key', 'model'))
+    if any(not isinstance(v, str) for v in (base, key, model)):
+        raise TranslationError('TRANSLATION_CONFIG_INVALID', 'AI 翻译配置无效', 503)
     if not base or not key or not model:
         raise TranslationError('TRANSLATION_NOT_CONFIGURED', '管理员尚未配置 AI 翻译服务', 503)
     try:
@@ -107,8 +131,10 @@ def translation_config():
         if not path.endswith('/chat/completions'):
             path += '/chat/completions'
         endpoint = urlunsplit((url.scheme, url.netloc, path, '', ''))
-        timeout = float(os.environ.get('AI_TRANSLATION_TIMEOUT_SECONDS', '45'))
+        timeout = float(config.get('timeout_seconds', 45))
         if not 5 <= timeout <= 90:
+            raise ValueError()
+        if config.get('default_language', 'zh-CN') not in LANGUAGES:
             raise ValueError()
         if len(model) > 200 or len(key) > 4096 or any(c in key for c in '\r\n'):
             raise ValueError()

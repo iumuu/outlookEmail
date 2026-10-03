@@ -6,7 +6,7 @@
 
 ## AI 邮件翻译（可选）
 
-邮件详情支持手动 AI 翻译主题和正文，默认简体中文，可选择其他语言。管理员通过服务端 `AI_TRANSLATION_BASE_URL`、`AI_TRANSLATION_API_KEY`、`AI_TRANSLATION_MODEL` 配置 OpenAI-compatible API，密钥不会发送到浏览器。只有点击并确认后才上传正文文本；原文在上、译文在下，原始邮件 DOM/iframe 和样式不修改；译文通过安全 HTML 克隆与编号文本节点替换，保留表格、图片、链接和原有样式，在无脚本的独立沙箱 iframe 中显示，也支持纯文本换行。安全净化及译文长度可能改变视觉细节，不保证像素级一致。配置、Docker 部署和隐私限制见 [AI 邮件翻译说明](docs/ai-email-translation.md)。
+邮件详情支持手动 AI 翻译主题和正文，默认简体中文，可选择其他语言。管理员可在“设置 → AI 邮件翻译”配置 OpenAI-compatible 地址、API Key、模型、默认语言与超时并测试连接；已保存设置整体优先于服务端 `AI_TRANSLATION_BASE_URL`、`AI_TRANSLATION_API_KEY`、`AI_TRANSLATION_MODEL` 环境配置。真实已保存密钥不会返回浏览器，留空保留、显式清除停用且不回退环境。只有点击并确认后才上传正文文本；原文在上、译文在下，原始邮件 DOM/iframe 和样式不修改；译文通过安全 HTML 克隆与编号文本节点替换，保留表格、图片、链接和原有样式，在无脚本的独立沙箱 iframe 中显示，也支持纯文本换行。安全净化及译文长度可能改变视觉细节，不保证像素级一致。配置、Docker 部署和隐私限制见 [AI 邮件翻译说明](docs/ai-email-translation.md)。
 ## 📦 快速开始
 ### 体验站点（可能非最新版本）
 https://aso.de5.net
