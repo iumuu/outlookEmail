@@ -172,7 +172,7 @@ def translate_email(data):
         try:
             segments = validate_segments(data['segments'])
         except ValueError:
-            raise TranslationError('INVALID_SEGMENTS', '文本段无效或超过 400 段 / 30000 字符限制', 400) from None
+            raise TranslationError('INVALID_SEGMENTS', '句子片段无效或超过 400 段 / 30000 字符限制', 400) from None
         if not subject.strip() and not segments:
             raise TranslationError('EMPTY_INPUT', '没有可翻译的邮件内容', 400)
     endpoint, key, model, timeout = translation_config()

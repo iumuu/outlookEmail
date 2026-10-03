@@ -7,6 +7,14 @@ const source = 'async function loadTranslationSettings' + fs.readFileSync('stati
 (async () => {
     const dom = new JSDOM('<section>' + section + '</section>');
     const w = dom.window;
+    for (const id of ['translationBaseUrl', 'translationApiKey', 'translationModel', 'translationTimeout']) {
+        assert.equal(w.document.getElementById(id).className, 'form-input');
+        assert.equal(w.document.querySelector(`label[for="${id}"]`).className, 'form-label');
+    }
+    assert.equal(w.document.getElementById('translationLanguage').className, 'form-select');
+    assert.ok(w.document.querySelector('.settings-panel.settings-panel-grid'));
+    assert.ok(w.document.querySelector('.btn.btn-primary'));
+    assert.ok(w.document.querySelector('.btn.btn-secondary'));
     const requests = [];
     w.confirm = () => true;
     w.fetch = async (url, options = {}) => {

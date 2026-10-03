@@ -237,8 +237,10 @@ def test_frontend_privacy_and_safe_rendering_contract():
     assert "button.addEventListener('click'" in translation
     assert 'window.confirm' in translation
     assert 'JSON.stringify({ ...mail' in translation
-    assert '.textContent = translated.subject' in translation
-    assert 'node.data = leading + item.text.trim() + trailing' in translation
+    assert 'translatedSubject.textContent = translated.subject' in translation
+    assert 'createTextNode(translated.segments[id].text.trim())' in translation
+    assert 'node.replaceWith(fragment)' in translation
+    assert 'Intl.Segmenter' in translation
     assert 'DOMPurify.sanitize(source' in translation
     assert 'WHOLE_DOCUMENT: true' in translation
     assert "frame.setAttribute('sandbox', 'allow-same-origin')" in translation

@@ -1747,7 +1747,35 @@
         let activeTranslationController = null;
 
         function mountEmailTranslation(container, email, isHtml) {
-            // Clone the displayed markup; the provider receives text nodes only.
+            // Sentence boundaries are local to each text node: never restructure links/tables.
+            function sentenceParts(text) {
+                const parts = [];
+                const protectedRanges = Array.from(text.matchAll(/(?:https?:\/\/|www\.)[^\s<>]+/gi),
+                    match => [match.index, match.index + match[0].length]);
+                const protectedBoundary = index => protectedRanges.some(([start, end]) => index > start && index < end)
+                    || (/\d/.test(text[index - 2] || '') && text[index - 1] === '.' && /\d/.test(text[index] || ''));
+                const boundaries = new Set([text.length]);
+                // Explicit newlines remain boundaries even where Segmenter groups paragraphs.
+                for (const match of text.matchAll(/\r\n|[\r\n]/g)) boundaries.add(match.index + match[0].length);
+                if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+                    for (const item of new Intl.Segmenter(undefined, { granularity: 'sentence' }).segment(text)) {
+                        const end = item.index + item.segment.length;
+                        if (!protectedBoundary(end)) boundaries.add(end);
+                    }
+                } else {
+                    for (const match of text.matchAll(/[。！？!?]+[”’"')）]*|\.+[”’"')）]*(?=\s|$)/g)) {
+                        const end = match.index + match[0].length;
+                        if (!protectedBoundary(end)) boundaries.add(end);
+                    }
+                }
+                let start = 0;
+                for (const end of Array.from(boundaries).sort((a, b) => a - b)) {
+                    parts.push(text.slice(start, end));
+                    start = end;
+                }
+                return parts;
+            }
+            // Clone the displayed markup; the provider receives sentence text only.
             function snapshotText() {
                 let doc;
                 if (isHtml) {
@@ -1781,12 +1809,19 @@
                     const node = walker.currentNode;
                     if (node.textContent.trim() && !node.parentElement.closest(
                         'script, style, head, template, noscript, [hidden], [aria-hidden="true"]')) {
-                        nodes.push(node);
+                        nodes.push({ node, parts: sentenceParts(node.data) });
                     }
                 }
+                const segments = [];
+                nodes.forEach(entry => {
+                    entry.parts = entry.parts.map(text => {
+                        const id = text.trim() ? segments.length : null;
+                        if (id !== null) segments.push({ id, text });
+                        return { id, text };
+                    });
+                });
                 return { doc, nodes, mail: {
-                    subject: typeof email.subject === 'string' ? email.subject : '',
-                    segments: nodes.map((node, id) => ({ id, text: node.textContent }))
+                    subject: typeof email.subject === 'string' ? email.subject : '', segments
                 } };
             }
             const controls = container.querySelector('.email-translation');
@@ -1806,6 +1841,17 @@
             const select = controls.querySelector('select');
             const status = controls.querySelector('[role="status"]');
             const output = controls.querySelector('.email-translation-result');
+            const originalToggle = document.createElement('button');
+            originalToggle.type = 'button';
+            originalToggle.className = 'batch-btn';
+            originalToggle.textContent = '查看原始邮件';
+            originalToggle.hidden = true;
+            controls.append(originalToggle);
+            originalToggle.addEventListener('click', () => {
+                const bilingual = container.classList.toggle('email-bilingual-active');
+                output.hidden = !bilingual;
+                originalToggle.textContent = bilingual ? '查看原始邮件' : '返回逐句双语对照';
+            });
             button.addEventListener('click', async () => {
                 if (button.disabled) return;
                 if (!window.confirm('将当前邮件的主题和正文发送给管理员配置的 AI 服务进行翻译。附件和邮件头不会发送。是否继续？')) return;
@@ -1814,6 +1860,8 @@
                 button.disabled = true;
                 select.disabled = true;
                 output.hidden = true;
+                container.classList.remove('email-bilingual-active');
+                originalToggle.hidden = true;
                 status.textContent = '正在翻译…';
                 try {
                     const snapshot = snapshotText();
@@ -1832,23 +1880,45 @@
                     }
                     const translated = data.translation;
                     if (typeof translated?.subject !== 'string' || !Array.isArray(translated.segments) ||
-                        translated.segments.length !== snapshot.nodes.length ||
+                        translated.segments.length !== snapshot.mail.segments.length ||
                         translated.segments.some((item, id) => !item || item.id !== id ||
                             typeof item.text !== 'string' || !item.text.trim())) {
                         throw new Error('Invalid translation segments');
                     }
-                    controls.querySelector('.email-translation-subject').textContent = translated.subject;
-                    // Only replace Text.data. No provider-generated markup or attributes are used.
-                    translated.segments.forEach((item, id) => {
-                        const node = snapshot.nodes[id];
-                        // Keep inter-element spaces even if a provider trims its output.
-                        const leading = node.data.match(/^\s*/)[0];
-                        const trailing = node.data.match(/\s*$/)[0];
-                        node.data = leading + item.text.trim() + trailing;
+                    const subject = controls.querySelector('.email-translation-subject');
+                    const originalSubject = document.createElement('span');
+                    originalSubject.textContent = snapshot.mail.subject;
+                    const translatedSubject = document.createElement('span');
+                    translatedSubject.textContent = translated.subject;
+                    subject.replaceChildren(originalSubject, document.createElement('br'), translatedSubject);
+                    // Provider output is always Text, never HTML. Modify only the safe clone.
+                    snapshot.nodes.forEach(({ node, parts }) => {
+                        const fragment = snapshot.doc.createDocumentFragment();
+                        parts.forEach(({ id, text }) => {
+                            if (id === null) {
+                                fragment.append(snapshot.doc.createTextNode(text));
+                                return;
+                            }
+                            const leading = text.match(/^\s*/)[0];
+                            const trailing = text.match(/\s*$/)[0];
+                            fragment.append(snapshot.doc.createTextNode(leading));
+                            const pair = snapshot.doc.createElement('span');
+                            pair.setAttribute('data-bilingual-pair', '');
+                            pair.style.setProperty('display', 'block', 'important');
+                            const originalLine = snapshot.doc.createElement('span');
+                            originalLine.style.setProperty('display', 'block', 'important');
+                            originalLine.append(snapshot.doc.createTextNode(text.trim()));
+                            const translatedLine = snapshot.doc.createElement('span');
+                            translatedLine.style.setProperty('display', 'block', 'important');
+                            translatedLine.append(snapshot.doc.createTextNode(translated.segments[id].text.trim()));
+                            pair.append(originalLine, translatedLine);
+                            fragment.append(pair, snapshot.doc.createTextNode(trailing));
+                        });
+                        node.replaceWith(fragment);
                     });
                     const body = controls.querySelector('.email-translation-body');
                     const frame = document.createElement('iframe');
-                    frame.title = '邮件译文';
+                    frame.title = '逐句双语对照';
                     frame.setAttribute('sandbox', 'allow-same-origin');
                     frame.style.cssText = 'width:100%;border:0;min-height:200px';
                     frame.addEventListener('load', () => {
@@ -1871,7 +1941,10 @@
                     body.replaceChildren(frame);
                     output.hidden = false;
                     output.open = true;
-                    status.textContent = '翻译完成（AI 可能出错，请核对上方原文）';
+                    container.classList.add('email-bilingual-active');
+                    originalToggle.hidden = false;
+                    originalToggle.textContent = '查看原始邮件';
+                    status.textContent = '逐句双语对照完成（每句原文在上、译文在下；AI 可能出错）';
                 } catch (error) {
                     if (controls.isConnected && !controller.signal.aborted) {
                         status.textContent = '翻译请求失败或超时，请稍后重试';
@@ -1967,10 +2040,10 @@
                         </select></label>
                         <button type="button" class="batch-btn">AI 翻译</button>
                     </div>
-                    <p class="email-translation-notice">仅点击并确认后，将主题和正文文本发送给管理员配置的 AI 服务；不发送附件或邮件头。原文保留，译文仅在当前页面显示。</p>
+                    <p class="email-translation-notice">仅点击并确认后，将主题和正文文本发送给管理员配置的 AI 服务；不发送附件或邮件头。原文保留，逐句双语对照仅在当前页面显示。</p>
                     <p role="status" aria-live="polite"></p>
                     <details class="email-translation-result" hidden>
-                        <summary>译文（原文在上方，点击展开 / 收起）</summary>
+                        <summary>逐句双语对照（每句原文在上、译文在下）</summary>
                         <h3 class="email-translation-subject"></h3>
                         <div class="email-translation-body"></div>
                     </details>

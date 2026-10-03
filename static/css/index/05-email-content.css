@@ -1031,3 +1031,9 @@
             display: inline-block;
         }
 
+
+/* Keep the original rendition available without displaying two full email bodies. */
+.email-bilingual-active .email-body-text,
+.email-bilingual-active #emailBodyFrame {
+    display: none !important;
+}
