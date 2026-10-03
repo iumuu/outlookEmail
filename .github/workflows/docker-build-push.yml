@@ -16,6 +16,7 @@ on:
       - main
       - master
       - dev
+      - feature/ai-email-translation
     paths:
       - '**.py'
       - 'VERSION'
@@ -61,6 +62,8 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
+            type=raw,value=ai-translation,enable=${{ github.ref == 'refs/heads/feature/ai-email-translation' }}
+            type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
             type=semver,pattern=v{{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
