@@ -16,7 +16,6 @@ on:
       - main
       - master
       - dev
-      - feature/ai-email-translation
     paths:
       - '**.py'
       - 'VERSION'
