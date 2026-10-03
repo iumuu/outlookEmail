@@ -1744,7 +1744,139 @@
         }
 
         // 渲染邮件详情
+        let activeTranslationController = null;
+
+        function mountEmailTranslation(container, email, isHtml) {
+            // Clone the displayed markup; the provider receives text nodes only.
+            function snapshotText() {
+                let doc;
+                if (isHtml) {
+                    const original = container.querySelector('#emailBodyFrame');
+                    // Read only: never mutate the displayed iframe or its text nodes.
+                    const source = original.contentDocument?.body?.childNodes.length
+                        ? original.contentDocument.documentElement.outerHTML : original.srcdoc;
+                    const safeHtml = DOMPurify.sanitize(source, {
+                        WHOLE_DOCUMENT: true,
+                        FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input',
+                            'button', 'template', 'noscript', 'svg', 'math', 'base', 'link', 'meta'],
+                        FORBID_ATTR: ['srcdoc'], ALLOW_DATA_ATTR: false
+                    });
+                    // Keep the original document's styles and safe structure, including tables/images.
+                    doc = new DOMParser().parseFromString(safeHtml, 'text/html');
+                } else {
+                    doc = document.implementation.createHTMLDocument('');
+                    const original = container.querySelector('.email-body-text');
+                    const text = original.cloneNode(true);
+                    const computed = window.getComputedStyle(original);
+                    ['font-family', 'font-size', 'font-weight', 'line-height', 'color',
+                        'white-space', 'overflow-wrap', 'text-align'].forEach(property => {
+                        text.style.setProperty(property, computed.getPropertyValue(property));
+                    });
+                    doc.body.append(text);
+                    doc.body.style.margin = '0';
+                }
+                const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+                const nodes = [];
+                while (walker.nextNode()) {
+                    const node = walker.currentNode;
+                    if (node.textContent.trim() && !node.parentElement.closest(
+                        'script, style, head, template, noscript, [hidden], [aria-hidden="true"]')) {
+                        nodes.push(node);
+                    }
+                }
+                return { doc, nodes, mail: {
+                    subject: typeof email.subject === 'string' ? email.subject : '',
+                    segments: nodes.map((node, id) => ({ id, text: node.textContent }))
+                } };
+            }
+            const controls = container.querySelector('.email-translation');
+            const button = controls.querySelector('button');
+            const select = controls.querySelector('select');
+            const status = controls.querySelector('[role="status"]');
+            const output = controls.querySelector('.email-translation-result');
+            button.addEventListener('click', async () => {
+                if (button.disabled) return;
+                if (!window.confirm('将当前邮件的主题和正文发送给管理员配置的 AI 服务进行翻译。附件和邮件头不会发送。是否继续？')) return;
+                const controller = new AbortController();
+                activeTranslationController = controller;
+                button.disabled = true;
+                select.disabled = true;
+                output.hidden = true;
+                status.textContent = '正在翻译…';
+                try {
+                    const snapshot = snapshotText();
+                    const mail = snapshot.mail;
+                    const response = await fetchWithTimeout('/api/email/translate', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...mail, target_language: select.value }),
+                        signal: controller.signal, timeoutMs: 110000
+                    });
+                    const data = await response.json();
+                    if (!controls.isConnected || controller.signal.aborted) return;
+                    if (!response.ok || !data.success) {
+                        status.textContent = data.need_login ? '登录已过期，请重新登录' :
+                            (data.error?.message || '翻译失败，请稍后重试');
+                        return;
+                    }
+                    const translated = data.translation;
+                    if (typeof translated?.subject !== 'string' || !Array.isArray(translated.segments) ||
+                        translated.segments.length !== snapshot.nodes.length ||
+                        translated.segments.some((item, id) => !item || item.id !== id ||
+                            typeof item.text !== 'string' || !item.text.trim())) {
+                        throw new Error('Invalid translation segments');
+                    }
+                    controls.querySelector('.email-translation-subject').textContent = translated.subject;
+                    // Only replace Text.data. No provider-generated markup or attributes are used.
+                    translated.segments.forEach((item, id) => {
+                        const node = snapshot.nodes[id];
+                        // Keep inter-element spaces even if a provider trims its output.
+                        const leading = node.data.match(/^\s*/)[0];
+                        const trailing = node.data.match(/\s*$/)[0];
+                        node.data = leading + item.text.trim() + trailing;
+                    });
+                    const body = controls.querySelector('.email-translation-body');
+                    const frame = document.createElement('iframe');
+                    frame.title = '邮件译文';
+                    frame.setAttribute('sandbox', 'allow-same-origin');
+                    frame.style.cssText = 'width:100%;border:0;min-height:200px';
+                    frame.addEventListener('load', () => {
+                        const resize = () => {
+                            if (frame.isConnected && frame.contentDocument?.body) {
+                                frame.style.height = Math.max(200, frame.contentDocument.documentElement.scrollHeight) + 'px';
+                            }
+                        };
+                        resize();
+                        frame.contentDocument?.querySelectorAll('img').forEach(img => {
+                            img.addEventListener('load', resize);
+                            img.addEventListener('error', resize);
+                        });
+                    });
+                    const csp = snapshot.doc.createElement('meta');
+                    csp.httpEquiv = 'Content-Security-Policy';
+                    csp.content = "default-src 'none'; img-src https: http: data: cid:; style-src 'unsafe-inline'; script-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'";
+                    snapshot.doc.head.prepend(csp);
+                    frame.srcdoc = '<!DOCTYPE html>' + snapshot.doc.documentElement.outerHTML;
+                    body.replaceChildren(frame);
+                    output.hidden = false;
+                    output.open = true;
+                    status.textContent = '翻译完成（AI 可能出错，请核对上方原文）';
+                } catch (error) {
+                    if (controls.isConnected && !controller.signal.aborted) {
+                        status.textContent = '翻译请求失败或超时，请稍后重试';
+                    }
+                } finally {
+                    button.disabled = false;
+                    select.disabled = false;
+                    if (activeTranslationController === controller) activeTranslationController = null;
+                }
+            });
+        }
+
         function renderEmailDetail(email) {
+            if (activeTranslationController) {
+                activeTranslationController.abort();
+                activeTranslationController = null;
+            }
             cleanupNormalDetailIframeResizeResources();
             const container = document.getElementById('emailDetail');
             const compactMobileMeta = typeof isMobileLayout === 'function' && isMobileLayout();
@@ -1809,7 +1941,31 @@
                     ${renderAttachmentSection(email)}
                     ${bodyContent}
                 </div>
+                <section class="email-translation" aria-label="AI 邮件翻译">
+                    <div class="email-translation-actions">
+                        <label>翻译为 <select aria-label="翻译目标语言">
+                            <option value="zh-CN">简体中文</option>
+                            <option value="zh-TW">繁體中文</option>
+                            <option value="en">English</option>
+                            <option value="ja">日本語</option>
+                            <option value="ko">한국어</option>
+                            <option value="fr">Français</option>
+                            <option value="de">Deutsch</option>
+                            <option value="es">Español</option>
+                        </select></label>
+                        <button type="button" class="batch-btn">AI 翻译</button>
+                    </div>
+                    <p class="email-translation-notice">仅点击并确认后，将主题和正文文本发送给管理员配置的 AI 服务；不发送附件或邮件头。原文保留，译文仅在当前页面显示。</p>
+                    <p role="status" aria-live="polite"></p>
+                    <details class="email-translation-result" hidden>
+                        <summary>译文（原文在上方，点击展开 / 收起）</summary>
+                        <h3 class="email-translation-subject"></h3>
+                        <div class="email-translation-body"></div>
+                    </details>
+                </section>
             `;
+
+            mountEmailTranslation(container, email, isHtml);
 
             // 如果是 HTML 内容，设置 iframe 内容
             if (isHtml) {

@@ -1001,6 +1001,29 @@
             gap: 6px;
         }
 
+        .email-translation {
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border-color, #ddd);
+        }
+        .email-translation-actions {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .email-translation select { max-width: 100%; padding: 5px; }
+        .email-translation-notice, .email-translation [role="status"] {
+            font-size: 12px;
+            line-height: 1.6;
+            margin: 8px 0;
+        }
+        .email-translation-subject, .email-translation-body {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            line-height: 1.6;
+        }
+        .email-translation-result { padding: 10px 0; }
+
         .btn-icon {
             width: 14px;
             height: 14px;

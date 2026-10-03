@@ -3,6 +3,10 @@
 一个面向多邮箱账号场景的邮件管理工具，支持通过 Outlook/Hotmail OAuth、Microsoft Graph API 和标准 IMAP 统一读取、管理和转发邮件，并提供 Web 界面、Chrome/Edge 浏览器扩展，用于分组管理、账号管理、邮件查看和对外 API 调用。当前支持 Outlook/Hotmail、Gmail、QQ、163、126、Yahoo、阿里邮箱以及自定义 IMAP 邮箱，同时集成 GPTMail、DuckMail、Cloudflare Temp Email 多提供商临时邮箱能力。
 
 注意：改密码会导致auth失效，需要重新授权
+
+## AI 邮件翻译（可选）
+
+邮件详情支持手动 AI 翻译主题和正文，默认简体中文，可选择其他语言。管理员通过服务端 `AI_TRANSLATION_BASE_URL`、`AI_TRANSLATION_API_KEY`、`AI_TRANSLATION_MODEL` 配置 OpenAI-compatible API，密钥不会发送到浏览器。只有点击并确认后才上传正文文本；原文在上、译文在下，原始邮件 DOM/iframe 和样式不修改；译文通过安全 HTML 克隆与编号文本节点替换，保留表格、图片、链接和原有样式，在无脚本的独立沙箱 iframe 中显示，也支持纯文本换行。安全净化及译文长度可能改变视觉细节，不保证像素级一致。配置、Docker 部署和隐私限制见 [AI 邮件翻译说明](docs/ai-email-translation.md)。
 ## 📦 快速开始
 ### 体验站点（可能非最新版本）
 https://aso.de5.net
